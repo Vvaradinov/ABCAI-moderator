@@ -78,8 +78,30 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 // ProcessProposalHandler is the handler to be used for ProcessProposal.
 func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
-		resp.Status = 1 // Accepts the proposal
-		return resp, nil
+		if len(req.Txs) == 0 {
+			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
+		}
+
+		var injectedVoteExtTx ScamProposalTx
+		if err := json.Unmarshal(req.Txs[0], &injectedVoteExtTx); err != nil {
+			h.logger.Error("failed to decode injected vote extension tx", "err", err)
+			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
+		}
+		
+		err = baseapp.ValidateVoteExtensions(ctx, h.valStore, req.Height, ctx.ChainID(), injectedVoteExtTx.ExtendedCommitInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		scoreWeightedAverage, err := h.computeScamIdentificationResults(ctx, injectedVoteExtTx.ExtendedCommitInfo)
+		if err != nil {
+			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
+		}
+		if scoreWeightedAverage != injectedVoteExtTx.Score {
+			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
+		}
+		
+		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil	
 	}
 }
 
@@ -117,5 +139,4 @@ func (h *ProposalHandler) computeScamIdentificationResults(ctx sdk.Context, ci a
 	// Compute stake-weighted average of the scamScore, i.e.
 	// (S1)(W1) + (S2)(W2) + ... + (Sn)(Wn) / (W1 + W2 + ... + Wn)
 	return weightedScore / totalStake, nil
-
 }
