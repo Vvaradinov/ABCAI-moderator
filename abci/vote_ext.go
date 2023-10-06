@@ -63,7 +63,7 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 			return nil, err
 		}
 
-		// produce a canonical vote extension that contains the SusProposals
+		// produce a canonical vote extension ScamProposalExtension
 		voteExtension := ScamProposalExtension{
 			HashedTitle: hashStringWithNonce(proposalMsg.Title, req.Height),
 			ScamPercent: result,
@@ -96,7 +96,10 @@ func (h *VoteExtHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExtensionHan
 			return nil, fmt.Errorf("vote extension height does not match request height; expected: %d, got: %d", req.Height, voteExt.Height)
 		}
 
-		// TODO: Somehow verify the aggregate results of all validators and apply some
+		// Check if the calculated result is within the range 0 to 100
+		if voteExt.ScamPercent > 100 || voteExt.ScamPercent < 0 {
+			return nil, fmt.Errorf("vote extension scam percent is outside the range")
+		}
 
 		return &abci.ResponseVerifyVoteExtension{Status: abci.ResponseVerifyVoteExtension_ACCEPT}, nil
 	}
@@ -104,8 +107,6 @@ func (h *VoteExtHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExtensionHan
 
 // hashStringWithNonce hashes a string with a nonce and returns the hash and nonce.
 func hashStringWithNonce(data string, height int64) string {
-	// Generate a random nonce.
-
 	// Concatenate data with nonce.
 	input := fmt.Sprintf("%s%d", data, height)
 
