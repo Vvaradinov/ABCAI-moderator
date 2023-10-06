@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"os"
+	"scam-proposal-detection/app"
+	"scam-proposal-detection/testutils"
 
 	"cosmossdk.io/log"
 	dbm "github.com/cosmos/cosmos-db"
@@ -10,8 +12,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	txmodule "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
-	"scam-proposal-detection/app"
-	"scam-proposal-detection/testutils"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"

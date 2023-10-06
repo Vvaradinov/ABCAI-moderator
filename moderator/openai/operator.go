@@ -3,11 +3,9 @@ package openai
 import (
 	"context"
 	"fmt"
-	"os"
-
-	"ABCAI-moderator/types"
-
 	openai "github.com/sashabaranov/go-openai"
+	"os"
+	"scam-proposal-detection/moderator/types"
 )
 
 const TOKEN_LIMIT = 4096
@@ -60,7 +58,7 @@ func ComputeScoreProposal(proposal types.Proposal) (int64, error) {
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT3Dot5Turbo,
+			Model:       openai.GPT3Dot5Turbo,
 			Temperature: 0.0,
 			Messages: []openai.ChatCompletionMessage{
 				{
@@ -68,7 +66,7 @@ func ComputeScoreProposal(proposal types.Proposal) (int64, error) {
 					Content: "Given a document, you are a blockchain governance proposal scorer. Your task is to read the document and determine whether it represents a legit blockchain governance proposal or a scam proposal. Assign a score between 0 and 1, where 1 represents a legit proposal and 0 represents a scam proposal.",
 				},
 				{
-					Role:    openai.ChatMessageRoleUser,
+					Role: openai.ChatMessageRoleUser,
 					Content: `Given a document, you are a blockchain governance proposal scorer. Your task is to read the document and determine whether it represents a legit blockchain governance proposal or a scam proposal. Assign a score between 0 and 1, where 1 represents a legit proposal and 0 represents a scam proposal.
 
 					## Document:

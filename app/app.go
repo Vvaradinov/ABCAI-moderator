@@ -1,77 +1,125 @@
 package app
 
 import (
-	"cosmossdk.io/core/appconfig"
-	"cosmossdk.io/depinject"
-	"cosmossdk.io/log"
-	_ "embed"
-	dbm "github.com/cosmos/cosmos-db"
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	storetypes "cosmossdk.io/store/types"
+	"cosmossdk.io/x/tx/signing"
+	"cosmossdk.io/x/upgrade"
+	upgradetypes "cosmossdk.io/x/upgrade/types"
+	"encoding/json"
+	"fmt"
+	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/spf13/cast"
 	"io"
 	"os"
 	"path/filepath"
-	"scam-proposal-detection/abci"
 
-	storetypes "cosmossdk.io/store/types"
+	"github.com/cosmos/cosmos-sdk/codec/address"
+	"github.com/cosmos/cosmos-sdk/std"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/bank"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/cosmos/cosmos-sdk/x/consensus"
+	consensusparamtypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
+	"github.com/cosmos/cosmos-sdk/x/distribution"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
+	"github.com/cosmos/cosmos-sdk/x/params"
+	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	paramproposal "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	"github.com/cosmos/cosmos-sdk/x/staking"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	abci2 "scam-proposal-detection/abci"
 
-	_ "cosmossdk.io/api/cosmos/tx/config/v1" // import for side-effects
+	"cosmossdk.io/client/v2/autocli"
+	"cosmossdk.io/core/appmodule"
+	"github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
+	"github.com/cosmos/cosmos-sdk/runtime"
+	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	authcodec "github.com/cosmos/cosmos-sdk/x/auth/codec"
+	"github.com/cosmos/cosmos-sdk/x/genutil"
+	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/cosmos/cosmos-sdk/x/gov"
+	govclient "github.com/cosmos/cosmos-sdk/x/gov/client"
+	paramsclient "github.com/cosmos/cosmos-sdk/x/params/client"
+	"github.com/cosmos/gogoproto/proto"
+	// ibcclientclient "github.com/cosmos/ibc-go/v7/modules/core/02-client/client"
+
+	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
+	reflectionv1 "cosmossdk.io/api/cosmos/reflection/v1"
+	"cosmossdk.io/log"
+	upgradekeeper "cosmossdk.io/x/upgrade/keeper"
+	abci "github.com/cometbft/cometbft/abci/types"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
+	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
 	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/runtime"
+	"github.com/cosmos/cosmos-sdk/codec/types"
+	runtimeservices "github.com/cosmos/cosmos-sdk/runtime/services"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	_ "github.com/cosmos/cosmos-sdk/x/auth" // import for side-effects
+	"github.com/cosmos/cosmos-sdk/version"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	_ "github.com/cosmos/cosmos-sdk/x/auth/tx/config" // import for side-effects
-	_ "github.com/cosmos/cosmos-sdk/x/bank"           // import for side-effects
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	_ "github.com/cosmos/cosmos-sdk/x/consensus" // import for side-effects
-	consensuskeeper "github.com/cosmos/cosmos-sdk/x/consensus/keeper"
-	_ "github.com/cosmos/cosmos-sdk/x/distribution" // import for side-effects
+	consensusparamkeeper "github.com/cosmos/cosmos-sdk/x/consensus/keeper"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
-	_ "github.com/cosmos/cosmos-sdk/x/mint"    // import for side-effects
-	_ "github.com/cosmos/cosmos-sdk/x/staking" // import for side-effects
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 )
 
-// DefaultNodeHome default home directories for the application daemon
-var DefaultNodeHome string
-
-//go:embed app.yaml
-var AppConfigYAML []byte
-
 var (
-	_ runtime.AppI            = (*MiniApp)(nil)
-	_ servertypes.Application = (*MiniApp)(nil)
+	DefaultNodeHome string
+	// module account permissions
+	maccPerms = map[string][]string{
+		authtypes.FeeCollectorName:     nil,
+		distrtypes.ModuleName:          nil,
+		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
+		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
+		govtypes.ModuleName:            {authtypes.Burner},
+	}
 )
 
-// MiniApp extends an ABCI application, but with most of its parameters exported.
-// They are exported for convenience in creating helper functions, as object
-// capabilities aren't needed for testing.
-type MiniApp struct {
-	*runtime.App
-	legacyAmino       *codec.LegacyAmino
+var (
+	_ runtime.AppI            = (*App)(nil)
+	_ servertypes.Application = (*App)(nil)
+)
+
+type App struct {
+	*baseapp.BaseApp
+
+	legacyAmino       *codec.LegacyAmino //nolint:staticcheck
 	appCodec          codec.Codec
 	txConfig          client.TxConfig
-	interfaceRegistry codectypes.InterfaceRegistry
+	interfaceRegistry types.InterfaceRegistry
+
+	keys  map[string]*storetypes.KVStoreKey
+	tkeys map[string]*storetypes.TransientStoreKey
 
 	// keepers
 	AccountKeeper         authkeeper.AccountKeeper
 	BankKeeper            bankkeeper.Keeper
 	StakingKeeper         *stakingkeeper.Keeper
-	GovernanceKeeper      govkeeper.Keeper
 	DistrKeeper           distrkeeper.Keeper
-	ConsensusParamsKeeper consensuskeeper.Keeper
+	GovKeeper             govkeeper.Keeper
+	UpgradeKeeper         *upgradekeeper.Keeper
+	ParamsKeeper          paramskeeper.Keeper
+	ConsensusParamsKeeper consensusparamkeeper.Keeper
 
-	// simulation manager
-	sm *module.SimulationManager
+	mm           *module.Manager
+	BasicManager module.BasicManager
+
+	simulationManager *module.SimulationManager
+
+	configurator module.Configurator
 }
 
 func init() {
@@ -80,133 +128,485 @@ func init() {
 		panic(err)
 	}
 
-	DefaultNodeHome = filepath.Join(userHomeDir, ".minid")
+	DefaultNodeHome = filepath.Join(userHomeDir, ".cosmappd")
 }
 
-// AppConfig returns the default app config.
-func AppConfig() depinject.Config {
-	return depinject.Configs(
-		appconfig.LoadYAML(AppConfigYAML),
-		depinject.Supply(
-			// supply custom module basics
-			map[string]module.AppModuleBasic{
-				genutiltypes.ModuleName: genutil.NewAppModuleBasic(genutiltypes.DefaultMessageValidator),
-			},
-		),
-	)
-}
-
-// NewMiniApp returns a reference to an initialized MiniApp.
-func NewMiniApp(
+func NewApp(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
 	loadLatest bool,
+	skipUpgradeHeights map[int64]bool,
+	valKeyName string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions ...func(*baseapp.BaseApp),
-) (*MiniApp, error) {
-	var (
-		app        = &MiniApp{}
-		appBuilder *runtime.AppBuilder
-	)
+) *App {
+	homePath := cast.ToString(appOpts.Get(flags.FlagHome))
+	// Set demo flag
+	//runProvider := cast.ToBool(appOpts.Get(apptypes.FlagRunProvider))
 
-	if err := depinject.Inject(
-		depinject.Configs(
-			AppConfig(),
-			depinject.Supply(
-				logger,
-				appOpts,
-			),
-		),
-		&appBuilder,
-		&app.appCodec,
-		&app.legacyAmino,
-		&app.txConfig,
-		&app.interfaceRegistry,
-		&app.AccountKeeper,
-		&app.BankKeeper,
-		&app.StakingKeeper,
-		&app.GovernanceKeeper,
-		&app.DistrKeeper,
-		&app.ConsensusParamsKeeper,
-	); err != nil {
-		return nil, err
-	}
-
-	propHandler := abci.NewProposalHandler(
-		logger,
-		app.StakingKeeper,
-		app.appCodec,
-		app.GovernanceKeeper,
-		app.StakingKeeper,
-	)
-	voteExtHandler := abci.NewVoteExtensionHandler(logger, app.appCodec)
-
-	baseAppOptions = append(baseAppOptions, func(ba *baseapp.BaseApp) {
-		ba.SetExtendVoteHandler(voteExtHandler.ExtendVoteHandler())
-		ba.SetVerifyVoteExtensionHandler(voteExtHandler.VerifyVoteExtensionHandler())
-		ba.SetPrepareProposal(propHandler.PrepareProposalHandler())
-		ba.SetProcessProposal(propHandler.ProcessProposalHandler())
-		ba.SetPreBlocker(propHandler.PreBlocker)
+	interfaceRegistry, _ := types.NewInterfaceRegistryWithOptions(types.InterfaceRegistryOptions{
+		ProtoFiles: proto.HybridResolver,
+		SigningOptions: signing.Options{
+			AddressCodec: address.Bech32Codec{
+				Bech32Prefix: sdk.GetConfig().GetBech32AccountAddrPrefix(),
+			},
+			ValidatorAddressCodec: address.Bech32Codec{
+				Bech32Prefix: sdk.GetConfig().GetBech32ValidatorAddrPrefix(),
+			},
+		},
 	})
+	appCodec := codec.NewProtoCodec(interfaceRegistry)
+	legacyAmino := codec.NewLegacyAmino()
+	txConfig := authtx.NewTxConfig(appCodec, authtx.DefaultSignModes)
 
-	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
+	std.RegisterLegacyAminoCodec(legacyAmino)
+	std.RegisterInterfaces(interfaceRegistry)
+
+	/*
+		*************************
+		Configure Appside mempool
+		*************************
+	*/
+
+	bApp := baseapp.NewBaseApp(AppName, logger, db, txConfig.TxDecoder(), baseAppOptions...)
+	bApp.SetCommitMultiStoreTracer(traceStore)
+	bApp.SetVersion(version.Version)
+	bApp.SetInterfaceRegistry(interfaceRegistry)
+	bApp.SetTxEncoder(txConfig.TxEncoder())
+	keys := storetypes.NewKVStoreKeys(
+		authtypes.StoreKey,
+		banktypes.StoreKey,
+		stakingtypes.StoreKey,
+		distrtypes.StoreKey,
+		govtypes.StoreKey,
+		paramstypes.StoreKey,
+		upgradetypes.StoreKey,
+		consensusparamtypes.StoreKey,
+	)
 
 	// register streaming services
-	if err := app.RegisterStreamingServices(appOpts, app.kvStoreKeys()); err != nil {
-		return nil, err
+	if err := bApp.RegisterStreamingServices(appOpts, keys); err != nil {
+		panic(err)
 	}
 
-	/****  Module Options ****/
-	// create the simulation manager and define the order of the modules for deterministic simulations
-	// NOTE: this is not required apps that don't use the simulator for fuzz testing transactions
-	app.sm = module.NewSimulationManagerFromAppModules(app.ModuleManager.Modules, make(map[string]module.AppModuleSimulation, 0))
-	app.sm.RegisterStoreDecoders()
+	tkeys := storetypes.NewTransientStoreKeys(paramstypes.TStoreKey)
 
-	if err := app.Load(loadLatest); err != nil {
-		return nil, err
+	app := &App{
+		BaseApp:           bApp,
+		legacyAmino:       legacyAmino,
+		txConfig:          txConfig,
+		appCodec:          appCodec,
+		interfaceRegistry: interfaceRegistry,
+		keys:              keys,
+		tkeys:             tkeys,
 	}
 
-	return app, nil
+	moduleAccountAddresses := app.ModuleAccountAddrs()
+	blockedAddr := app.BlockedModuleAccountAddrs(moduleAccountAddresses)
+
+	app.AccountKeeper = authkeeper.NewAccountKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[authtypes.StoreKey]),
+		authtypes.ProtoBaseAccount,
+		maccPerms,
+		authcodec.NewBech32Codec(sdk.Bech32MainPrefix),
+		sdk.Bech32MainPrefix,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+	)
+
+	/*
+		*************************
+		Configure ABCI++ Handlers
+		*************************
+	*/
+
+	voteExtHandler := abci2.NewVoteExtensionHandler(logger, appCodec)
+	proposalHandler := abci2.NewProposalHandler(logger, app.StakingKeeper, app.appCodec, app.GovKeeper, app.StakingKeeper)
+	bApp.SetPrepareProposal(proposalHandler.PrepareProposalHandler())
+	bApp.SetProcessProposal(proposalHandler.ProcessProposalHandler())
+	bApp.SetExtendVoteHandler(voteExtHandler.ExtendVoteHandler())
+
+	app.ParamsKeeper = initParamsKeeper(appCodec, legacyAmino, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
+
+	// set the BaseApp's parameter store
+	app.ConsensusParamsKeeper = consensusparamkeeper.NewKeeper(appCodec, runtime.NewKVStoreService(keys[consensusparamtypes.StoreKey]), authtypes.NewModuleAddress(govtypes.ModuleName).String(), runtime.EventService{})
+	bApp.SetParamStore(app.ConsensusParamsKeeper.ParamsStore)
+
+	// SDK module keepers
+
+	// add keepers
+	app.AccountKeeper = authkeeper.NewAccountKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[authtypes.StoreKey]),
+		authtypes.ProtoBaseAccount,
+		maccPerms,
+		authcodec.NewBech32Codec(sdk.Bech32MainPrefix),
+		sdk.Bech32MainPrefix,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+	)
+
+	app.BankKeeper = bankkeeper.NewBaseKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[banktypes.StoreKey]),
+		app.AccountKeeper,
+		blockedAddr,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+		logger,
+	)
+
+	app.StakingKeeper = stakingkeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[stakingtypes.StoreKey]),
+		app.AccountKeeper,
+		app.BankKeeper,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+		authcodec.NewBech32Codec(sdk.Bech32PrefixValAddr),
+		authcodec.NewBech32Codec(sdk.Bech32PrefixConsAddr),
+	)
+
+	app.DistrKeeper = distrkeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[distrtypes.StoreKey]),
+		app.AccountKeeper,
+		app.BankKeeper,
+		app.StakingKeeper,
+		authtypes.FeeCollectorName,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+	)
+
+	app.UpgradeKeeper = upgradekeeper.NewKeeper(
+		skipUpgradeHeights,
+		runtime.NewKVStoreService(keys[upgradetypes.StoreKey]),
+		appCodec,
+		homePath,
+		app.BaseApp,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+	)
+
+	govRouter := govv1beta1.NewRouter()
+	govRouter.AddRoute(govtypes.RouterKey, govv1beta1.ProposalHandler).
+		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper))
+
+	govConfig := govtypes.DefaultConfig()
+
+	govKeeper := govkeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[govtypes.StoreKey]),
+		app.AccountKeeper,
+		app.BankKeeper,
+		app.StakingKeeper,
+		app.DistrKeeper,
+		app.MsgServiceRouter(),
+		govConfig,
+		authtypes.NewModuleAddress(govtypes.ModuleName).String(),
+	)
+
+	// Set legacy router for backwards compatibility with gov v1beta1
+	govKeeper.SetLegacyRouter(govRouter)
+
+	app.GovKeeper = *govKeeper.SetHooks(
+		govtypes.NewMultiGovHooks(
+		// register the governance hooks
+		),
+	)
+
+	app.mm = module.NewManager(
+		genutil.NewAppModule(
+			app.AccountKeeper, app.StakingKeeper, app,
+			txConfig,
+		),
+		auth.NewAppModule(appCodec, app.AccountKeeper, nil, app.GetSubspace(authtypes.ModuleName)),
+		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, app.GetSubspace(banktypes.ModuleName)),
+		gov.NewAppModule(appCodec, &app.GovKeeper, app.AccountKeeper, app.BankKeeper, app.GetSubspace(govtypes.ModuleName)),
+		distribution.NewAppModule(appCodec, app.DistrKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper, app.GetSubspace(distrtypes.ModuleName)),
+		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, app.GetSubspace(stakingtypes.ModuleName)),
+		upgrade.NewAppModule(app.UpgradeKeeper, app.AccountKeeper.AddressCodec()),
+		params.NewAppModule(app.ParamsKeeper),
+		consensus.NewAppModule(appCodec, app.ConsensusParamsKeeper),
+	)
+
+	// Basic manager
+	app.BasicManager = module.NewBasicManagerFromManager(
+		app.mm,
+		map[string]module.AppModuleBasic{
+			genutiltypes.ModuleName: genutil.NewAppModuleBasic(genutiltypes.DefaultMessageValidator),
+			govtypes.ModuleName: gov.NewAppModuleBasic(
+				[]govclient.ProposalHandler{
+					paramsclient.ProposalHandler,
+				},
+			),
+		})
+
+	app.BasicManager.RegisterLegacyAminoCodec(legacyAmino)
+	app.BasicManager.RegisterInterfaces(interfaceRegistry)
+
+	app.mm.SetOrderBeginBlockers(
+		upgradetypes.ModuleName,
+		distrtypes.ModuleName,
+		stakingtypes.ModuleName,
+		genutiltypes.ModuleName,
+	)
+
+	app.mm.SetOrderEndBlockers(
+		govtypes.ModuleName,
+		stakingtypes.ModuleName,
+		genutiltypes.ModuleName,
+	)
+
+	genesisModuleOrder := []string{
+		authtypes.ModuleName,
+		banktypes.ModuleName,
+		distrtypes.ModuleName,
+		stakingtypes.ModuleName,
+		govtypes.ModuleName,
+		genutiltypes.ModuleName,
+		paramstypes.ModuleName,
+		upgradetypes.ModuleName,
+		consensusparamtypes.ModuleName,
+	}
+
+	app.mm.SetOrderInitGenesis(genesisModuleOrder...)
+	app.mm.SetOrderExportGenesis(genesisModuleOrder...)
+
+	app.configurator = module.NewConfigurator(
+		app.appCodec,
+		app.MsgServiceRouter(),
+		app.GRPCQueryRouter(),
+	)
+	err := app.mm.RegisterServices(app.configurator)
+	if err != nil {
+		panic(err)
+	}
+
+	autocliv1.RegisterQueryServer(app.GRPCQueryRouter(), runtimeservices.NewAutoCLIQueryService(app.mm.Modules))
+
+	reflectionSvc, err := runtimeservices.NewReflectionService()
+	if err != nil {
+		panic(err)
+	}
+	reflectionv1.RegisterReflectionServiceServer(app.GRPCQueryRouter(), reflectionSvc)
+
+	testdata.RegisterQueryServer(app.GRPCQueryRouter(), testdata.QueryImpl{})
+
+	// initialize stores
+	app.MountKVStores(keys)
+	app.MountTransientStores(tkeys)
+
+	// <Upgrade handler setup here>
+	// initialize BaseApp
+	app.SetInitChainer(app.InitChainer)
+	app.SetBeginBlocker(app.BeginBlocker)
+	app.SetEndBlocker(app.EndBlocker)
+
+	// app.setAnteHandler(txConfig)
+
+	// At startup, after all modules have been registered, check that all prot
+	// annotations are correct.
+	protoFiles, err := proto.MergedRegistry()
+	if err != nil {
+		panic(err)
+	}
+	err = msgservice.ValidateProtoAnnotations(protoFiles)
+	if err != nil {
+		// Once we switch to using protoreflect-based antehandlers, we might
+		// want to panic here instead of logging a warning.
+		_, err := fmt.Fprintln(os.Stderr, err.Error())
+		if err != nil {
+			fmt.Println("could not write to stderr")
+		}
+	}
+
+	if loadLatest {
+		if err := app.LoadLatestVersion(); err != nil {
+			panic(fmt.Errorf("error loading last version: %w", err))
+		}
+	}
+
+	return app
 }
 
-// LegacyAmino returns MiniApp's amino codec.
-func (app *MiniApp) LegacyAmino() *codec.LegacyAmino {
+func (app *App) Name() string { return app.BaseApp.Name() }
+
+// BeginBlocker application updates every begin block
+func (app *App) BeginBlocker(ctx sdk.Context) (sdk.BeginBlock, error) {
+	return app.mm.BeginBlock(ctx)
+}
+
+// EndBlocker application updates every end block
+func (app *App) EndBlocker(ctx sdk.Context) (sdk.EndBlock, error) {
+	return app.mm.EndBlock(ctx)
+}
+
+// InitChainer application update at chain initialization
+func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+	var genesisState GenesisState
+
+	// Enable VE
+	//req.ConsensusParams = &cmtproto.ConsensusParams{
+	//	Abci: &cmtproto.ABCIParams{
+	//		VoteExtensionsEnableHeight: 2,
+	//	},
+	//}
+
+	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
+		panic(err)
+	}
+	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+}
+
+func (app *App) LoadHeight(height int64) error {
+	return app.LoadVersion(height)
+}
+
+func (app *App) ModuleAccountAddrs() map[string]bool {
+	modAccAddrs := make(map[string]bool)
+	for acc := range maccPerms {
+		modAccAddrs[authtypes.NewModuleAddress(acc).String()] = true
+	}
+
+	return modAccAddrs
+}
+
+func (app *App) BlockedModuleAccountAddrs(modAccAddrs map[string]bool) map[string]bool {
+	delete(modAccAddrs, authtypes.NewModuleAddress(govtypes.ModuleName).String())
+
+	return modAccAddrs
+}
+
+func (app *App) LegacyAmino() *codec.LegacyAmino {
 	return app.legacyAmino
 }
 
-// GetKey returns the KVStoreKey for the provided store key.
-func (app *MiniApp) GetKey(storeKey string) *storetypes.KVStoreKey {
-	sk := app.UnsafeFindStoreKey(storeKey)
-	kvStoreKey, ok := sk.(*storetypes.KVStoreKey)
-	if !ok {
-		return nil
-	}
-	return kvStoreKey
+func (app *App) AppCodec() codec.Codec {
+	return app.appCodec
 }
 
-func (app *MiniApp) kvStoreKeys() map[string]*storetypes.KVStoreKey {
-	keys := make(map[string]*storetypes.KVStoreKey)
-	for _, k := range app.GetStoreKeys() {
-		if kv, ok := k.(*storetypes.KVStoreKey); ok {
-			keys[kv.Name()] = kv
+func (app *App) InterfaceRegistry() types.InterfaceRegistry {
+	return app.interfaceRegistry
+}
+
+func (app *App) GetTxConfig() client.TxConfig {
+	return app.txConfig
+}
+
+// AutoCliOpts returns the autocli options for the app.
+func (app *App) AutoCliOpts() autocli.AppOptions {
+	modules := make(map[string]appmodule.AppModule, 0)
+	for _, m := range app.mm.Modules {
+		if moduleWithName, ok := m.(module.HasName); ok {
+			moduleName := moduleWithName.Name()
+			if appModule, ok := moduleWithName.(appmodule.AppModule); ok {
+				modules[moduleName] = appModule
+			}
 		}
+	}
+
+	return autocli.AppOptions{
+		Modules: modules,
+		//AddressCodec:          authcodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix()),
+		//ValidatorAddressCodec: authcodec.NewBech32Codec(sdk.GetConfig().GetBech32ValidatorAddrPrefix()),
+		//ConsensusAddressCodec: authcodec.NewBech32Codec(sdk.GetConfig().GetBech32ConsensusAddrPrefix()),
+	}
+}
+
+// DefaultGenesis returns a default genesis from the registered AppModuleBasic's.
+func (app *App) DefaultGenesis() map[string]json.RawMessage {
+	return app.BasicManager.DefaultGenesis(app.appCodec)
+}
+
+// GetKey returns the KVStoreKey for the provided store key.
+//
+// NOTE: This is solely to be used for testing purposes.
+func (app *App) GetKey(storeKey string) *storetypes.KVStoreKey {
+	return app.keys[storeKey]
+}
+
+// GetStoreKeys returns all the stored store keys.
+func (app *App) GetStoreKeys() []storetypes.StoreKey {
+	keys := make([]storetypes.StoreKey, len(app.keys))
+	for _, key := range app.keys {
+		keys = append(keys, key)
 	}
 
 	return keys
 }
 
 // SimulationManager implements the SimulationApp interface
-func (app *MiniApp) SimulationManager() *module.SimulationManager {
-	return app.sm
+func (app *App) SimulationManager() *module.SimulationManager {
+	return app.simulationManager
 }
 
-// RegisterAPIRoutes registers all application module routes with the provided
-// API server.
-func (app *MiniApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
-	app.App.RegisterAPIRoutes(apiSvr, apiConfig)
-	// register swagger API in app.go so that other applications can override easily
+func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
+	clientCtx := apiSvr.ClientCtx
+	// Register new tx routes from grpc-gateway.
+	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// Register new CometBFT queries routes from grpc-gateway.
+	cmtservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// Register node gRPC service for grpc-gateway.
+	nodeservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// Register grpc-gateway routes for all modules.
+	app.BasicManager.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// register swagger API from root so that other applications can override easily
 	if err := server.RegisterSwaggerAPI(apiSvr.ClientCtx, apiSvr.Router, apiConfig.Swagger); err != nil {
 		panic(err)
 	}
+}
+
+func (app *App) RegisterTxService(clientCtx client.Context) {
+	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+}
+
+// RegisterTendermintService implements the Application.RegisterTendermintService method.
+func (app *App) RegisterTendermintService(clientCtx client.Context) {
+	cmtApp := server.NewCometABCIWrapper(app)
+	cmtservice.RegisterTendermintService(
+		clientCtx,
+		app.BaseApp.GRPCQueryRouter(),
+		app.interfaceRegistry,
+		cmtApp.Query,
+	)
+}
+
+func (app *App) RegisterNodeService(clientCtx client.Context, cfg config.Config) {
+	nodeservice.RegisterNodeService(clientCtx, app.GRPCQueryRouter(), cfg)
+}
+
+func (app *App) OnTxSucceeded(_ sdk.Context, _, _ string, _ []byte, _ []byte) {
+}
+
+func (app *App) OnTxFailed(_ sdk.Context, _, _ string, _ []byte, _ []byte) {
+}
+
+func (app *App) GetBaseApp() *baseapp.BaseApp {
+	return app.BaseApp
+}
+
+type EmptyAppOptions struct{}
+
+func (ao EmptyAppOptions) Get(_ string) interface{} {
+	return nil
+}
+
+// initParamsKeeper init params keeper and its subspaces
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey storetypes.StoreKey) paramskeeper.Keeper {
+	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, key, tkey)
+
+	// TODO: ibc module subspaces can be removed after migration of params
+	// https://github.com/cosmos/ibc-go/issues/2010
+
+	return paramsKeeper
+}
+
+// GetSubspace returns a param subspace for a given module name.
+//
+// NOTE: This is solely to be used for testing purposes.
+func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
+	subspace, _ := app.ParamsKeeper.GetSubspace(moduleName)
+	return subspace
 }

@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
-
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 	"scam-proposal-detection/app"
 	"scam-proposal-detection/cmd/cosmappd/cmd"
+
+	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
 )
 
 func main() {
