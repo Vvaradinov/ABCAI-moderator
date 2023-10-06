@@ -22,6 +22,7 @@ import (
 
 // ScamProposalExtension defines the canonical vote extension structure for scam detection.
 type ScamProposalExtension struct {
+	Title       string
 	HashedTitle string
 	ScamPercent int64
 	Height      int64
@@ -65,6 +66,7 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 
 		// produce a canonical vote extension ScamProposalExtension
 		voteExtension := ScamProposalExtension{
+			Title:       proposalMsg.Title,
 			HashedTitle: hashStringWithNonce(proposalMsg.Title, req.Height),
 			ScamPercent: result,
 			Height:      req.Height,
