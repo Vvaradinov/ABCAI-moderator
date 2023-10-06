@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fatal-fruit/cosmapp/app"
-
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
-	"github.com/fatal-fruit/cosmapp/cmd/cosmappd/cmd"
+	"scam-proposal-detection/app"
+	"scam-proposal-detection/cmd/cosmappd/cmd"
 )
 
 func main() {

@@ -14,7 +14,6 @@ import (
 type ScamProposalExtension struct {
 	ProposalID  uint64
 	ScamPercent uint64
-	IsScam      bool
 }
 
 func NewVoteExtensionHandler(lg log.Logger, cdc codec.Codec) *VoteExtHandler {
@@ -42,6 +41,13 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 		//	proposalMsg.Description,
 		// 	proposalMsg.Title,
 		//)
+
+		// produce a canonical vote extension
+		// TODO:
+		_ := ScamProposalExtension{
+			ProposalID:  1,
+			ScamPercent: 100,
+		}
 
 		//return &abci.ResponseExtendVote{VoteExtension: bz}, nil
 	}

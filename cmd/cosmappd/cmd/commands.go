@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"errors"
-	"github.com/fatal-fruit/cosmapp/testutils"
-	"github.com/fatal-fruit/cosmapp/types"
 	"io"
 	"os"
+	"scam-proposal-detection/app"
+	"scam-proposal-detection/testutils"
+	"scam-proposal-detection/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -27,7 +28,6 @@ import (
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
-	"github.com/fatal-fruit/cosmapp/app"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

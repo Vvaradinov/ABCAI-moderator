@@ -2,32 +2,25 @@ package abci
 
 import (
 	"cosmossdk.io/log"
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/fatal-fruit/cosmapp/mempool"
-	"github.com/fatal-fruit/cosmapp/provider"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 )
 
-type PrepareProposalHandler struct {
-	logger      log.Logger
-	txConfig    client.TxConfig
-	cdc         codec.Codec
-	mempool     *mempool.ThresholdMempool
-	txProvider  provider.TxProvider
-	keyname     string
-	runProvider bool
-}
-
-type ProcessProposalHandler struct {
-	TxConfig client.TxConfig
-	Codec    codec.Codec
-	Logger   log.Logger
+// ProposalHandler defines the ProposalHandler to be used for
+// PrepareProposal, ProcessProposal and PreBlocker
+type ProposalHandler struct {
+	logger        log.Logger
+	valStore      baseapp.ValidatorStore
+	cdc           codec.Codec
+	govKeeper     govkeeper.Keeper
+	stakingKeeper stakingkeeper.Keeper
 }
 
 type VoteExtHandler struct {
 	logger       log.Logger
 	currentBlock int64
-	mempool      *mempool.ThresholdMempool
 	cdc          codec.Codec
 }
 
