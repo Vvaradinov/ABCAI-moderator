@@ -2,8 +2,7 @@ package abci
 
 import (
 	"cosmossdk.io/log"
-	"crypto/sha256"
-	"encoding/hex"
+
 	"encoding/json"
 	"fmt"
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -67,7 +66,7 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 		// produce a canonical vote extension ScamProposalExtension
 		voteExtension := ScamProposalExtension{
 			Title:       proposalMsg.Title,
-			HashedTitle: hashStringWithNonce(proposalMsg.Title, req.Height),
+			HashedTitle: hashString(proposalMsg.Title),
 			ScamPercent: result,
 			Height:      req.Height,
 		}
@@ -107,15 +106,3 @@ func (h *VoteExtHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExtensionHan
 	}
 }
 
-// hashStringWithNonce hashes a string with a nonce and returns the hash and nonce.
-func hashStringWithNonce(data string, height int64) string {
-	// Concatenate data with nonce.
-	input := fmt.Sprintf("%s%d", data, height)
-
-	// Compute the SHA256 hash.
-	hasher := sha256.New()
-	hasher.Write([]byte(input))
-	hashed := hasher.Sum(nil)
-
-	return hex.EncodeToString(hashed)
-}

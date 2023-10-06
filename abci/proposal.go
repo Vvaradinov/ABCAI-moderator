@@ -3,8 +3,8 @@ package abci
 import (
 	"errors"
 	"fmt"
-	v1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 
+	v1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 	"cosmossdk.io/log"
 	"encoding/json"
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -24,7 +24,7 @@ type ScamProposalTx struct {
 	ExtendedCommitInfo abci.ExtendedCommitInfo
 }
 
-// NewProposalHandler creates a new instance of the handler to be used.
+// NewProposalHandler creates a new instance of the ProposalHandler to be used.
 func NewProposalHandler(
 	lg log.Logger,
 	valStore baseapp.ValidatorStore,
@@ -41,7 +41,11 @@ func NewProposalHandler(
 	}
 }
 
-// PrepareProposalHandler is the handler to be used for PrepareProposal.
+// PrepareProposalHandler is the handler to be used for PrepareProposal. The returned function will:
+// - validate the VoteExtensions
+// - check if VoteExtension is enabled
+// - compute the staking-weighted average of the score submitted by validators
+// - pre-append a transaction with the proposal information in the list of block transaction
 func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
 		err := baseapp.ValidateVoteExtensions(ctx, h.valStore, req.Height, ctx.ChainID(), req.LocalLastCommit)
@@ -63,6 +67,7 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 				return nil, fmt.Errorf("failed to unmrashal vote extension: %w", err)
 			}
 
+			// Create the fake proposal to be pre-appended in the block
 			injectedVoteExtTx := ScamProposalTx{
 				Score:              scoreWeightedAverage,
 				Title:              scamProposalExt.Title,
@@ -70,8 +75,6 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 				ExtendedCommitInfo: req.LocalLastCommit,
 			}
 
-			// NOTE: We use stdlib JSON encoding, but an application may choose to use
-			// a performant mechanism. This is for demo purposes only.
 			bz, err := json.Marshal(injectedVoteExtTx)
 			if err != nil {
 				h.logger.Error("failed to encode injected vote extension tx", "err", err)
@@ -79,14 +82,20 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 			}
 
 			// Inject a "fake" tx into the proposal s.t. validators can decode, verify,
-			// and store the canonical stake-weighted average prices.
+			// and store the canonical stake-weighted average score.
 			proposalTxs = append(proposalTxs, bz)
 		}
 		return nil, nil
 	}
 }
 
-// ProcessProposalHandler is the handler to be used for ProcessProposal.
+// ProcessProposalHandler is the handler to be used for ProcessProposal. The returned function will:
+// - unmarshal the first transaction in the block into the expected ScamProposalTx
+// - validate the VoteExtensions
+// - check if the hash of the title is correct
+// - compute the staking-weighted average of the score submitted by validators and check if it equal to
+//   the value computed by the block proposer of the previous block.
+// - pre-append a transaction with the proposal information in the list of block transaction
 func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 		if len(req.Txs) == 0 {
@@ -104,6 +113,10 @@ func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 			return nil, err
 		}
 
+		if injectedVoteExtTx.HashedTitle != hashString(injectedVoteExtTx.Title) {
+			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil	
+		}
+
 		scoreWeightedAverage, err := h.computeScamIdentificationResults(ctx, injectedVoteExtTx.ExtendedCommitInfo)
 		if err != nil {
 			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}, nil
@@ -116,6 +129,8 @@ func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 	}
 }
 
+// PreBlocker check if the scam score of the proposal specified in injectedVoteExtTx is higher than a certain
+// threshold. If it is, set the status of this proposal to reject and remove its title and summary.
 func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 	res := &sdk.ResponsePreBlock{}
 	if len(req.Txs) == 0 {
@@ -134,6 +149,9 @@ func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeB
 		return nil, err
 	}
 
+	// Iterate through all the proposal until the one with the required title is found. If the scam
+	// score of the proposal is higher than 90, the function remove the title,the summary and set 
+	// the status of this proposal to rejected.
 	for _, proposal := range resp.Proposals {
 		if proposal.Title == injectedVoteExtTx.Title {
 			// We found the proposal
