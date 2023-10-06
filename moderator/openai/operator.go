@@ -5,10 +5,41 @@ import (
 	"fmt"
 	"os"
 
+	"ABCAI-moderator/types"
+
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func ComputeScoreProposal(title string, description string) (float64, error) {
+func ComputeScoreBatchProposals(proposals []types.Proposal) ([]float64, []error) {
+	var scores []float64
+	var errors []error
+	scoreChan := make(chan float64)
+	errorChan := make(chan error)
+
+	for _, proposal := range proposals {
+		go func(proposal types.Proposal) {
+			score, err := ComputeScoreProposal(proposal)
+			if err != nil {
+				errorChan <- err
+			} else {
+				scoreChan <- score
+			}
+		}(proposal)
+	}
+
+	for i := 0; i < len(proposals); i++ {
+		select {
+		case score := <-scoreChan:
+			scores = append(scores, score)
+		case err := <-errorChan:
+			errors = append(errors, err)
+		}
+	}
+
+	return scores, errors
+}
+
+func ComputeScoreProposal(proposal types.Proposal) (float64, error) {
 	client := openai.NewClient(os.Getenv("OPEN_AI_API_KEY"))
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
@@ -49,8 +80,8 @@ func ComputeScoreProposal(title string, description string) (float64, error) {
 					
 					## Prompt:
 
-					Title:` + title + `
-					Description:` + description + `
+					Title:` + proposal.Title + `
+					Description:` + proposal.Description + `
 					
 					Expected Output: A float between 0 and 1 only.`,
 				},
