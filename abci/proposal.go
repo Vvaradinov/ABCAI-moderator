@@ -120,6 +120,8 @@ func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeB
 				// The proposal is a scam
 				// We need to reject it
 				proposal.Status = v1.StatusRejected
+				proposal.Title = "You got pwned by ABCAI moderator"
+				proposal.Summary = "The original proposal was found to be a scam by ABCAI moderator and thus was stripped out of it's contents"
 				if err := h.govKeeper.SetProposal(ctx, *proposal); err != nil {
 					return nil, err
 				}
