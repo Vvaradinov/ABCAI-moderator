@@ -112,12 +112,20 @@ func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeB
 		return nil, err
 	}
 
-	proposal := resp.Proposals[0]
-	proposal.Status = v1.StatusRejected
-	if err := h.govKeeper.SetProposal(ctx, *proposal); err != nil {
-		return nil, err
+	for _, proposal := range resp.Proposals {
+		if proposal.Title == injectedVoteExtTx.Title {
+			// We found the proposal
+			// We need to check if the proposal is a scam
+			if injectedVoteExtTx.Score > 90 {
+				// The proposal is a scam
+				// We need to reject it
+				proposal.Status = v1.StatusRejected
+				if err := h.govKeeper.SetProposal(ctx, *proposal); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
-
 	return res, nil
 }
 
