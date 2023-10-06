@@ -107,15 +107,13 @@ func (h *ProposalHandler) computeScamIdentificationResults(ctx sdk.Context, ci a
 		}
 
 		totalStake += vote.Validator.Power
-		// Compute stake-weighted average of the scamScore, i.e.
+		// Compute stake-weighted sum of the scamScore, i.e.
 		// (S1)(W1) + (S2)(W2) + ... + (Sn)(Wn) / (W1 + W2 + ... + Wn)
-		weightedScore += scamPropExt.ScamPercent * vote.Validator.Power
-
+		weightedScore += int64(scamPropExt.ScamPercent) * vote.Validator.Power
 	}
 
-	// Compute the average of all vote percentages
-	// If the average is greater than the threshold, return true
-	// Otherwise, return false
-	return false, nil
+	// Compute stake-weighted average of the scamScore, i.e.
+	// (S1)(W1) + (S2)(W2) + ... + (Sn)(Wn) / (W1 + W2 + ... + Wn)
+	return weightedScore / totalStake, nil
 
 }
