@@ -15,30 +15,40 @@ const AVERAGE_CHARACTERS_PER_TOKEN = 4
 const MAX_CHARACTERS = TOKEN_LIMIT * AVERAGE_CHARACTERS_PER_TOKEN
 const PROMPT_CHARACTERS_LENGTH = 2000
 
+type scoreWithIndex struct {
+	index int
+	score int64
+}
+
 func ComputeScoreBatchProposals(proposals []types.Proposal) ([]int64, []error) {
 	var scores []int64
 	var errors []error
-	scoreChan := make(chan int64)
-	errorChan := make(chan error)
+	scoreChan := make(chan scoreWithIndex, len(proposals))
+	errorChan := make(chan error, len(proposals))
 
-	for _, proposal := range proposals {
-		go func(proposal types.Proposal) {
+	for i, proposal := range proposals {
+		go func(i int, proposal types.Proposal) {
 			score, err := ComputeScoreProposal(proposal)
 			if err != nil {
 				errorChan <- err
 			} else {
-				scoreChan <- score
+				scoreChan <- scoreWithIndex{i, score}
 			}
-		}(proposal)
+		}(i, proposal)
 	}
 
+	scoresWithIndex := make([]scoreWithIndex, len(proposals))
 	for i := 0; i < len(proposals); i++ {
 		select {
 		case score := <-scoreChan:
-			scores = append(scores, score)
+			scoresWithIndex[score.index] = score
 		case err := <-errorChan:
 			errors = append(errors, err)
 		}
+	}
+
+	for _, score := range scoresWithIndex {
+		scores = append(scores, score.score)
 	}
 
 	return scores, errors
@@ -89,7 +99,7 @@ func ComputeScoreProposal(proposal types.Proposal) (int64, error) {
 					Title:` + proposal.Title + `
 					Description:` + fmt.Sprintf("%.*s", truncate_limit_description, proposal.Description) + `
 					
-					Expected Output: A float between 0 and 1 only.`,
+					Expected Output: A float between 0 and 1 only, do not write any text`,
 				},
 			},
 		},
