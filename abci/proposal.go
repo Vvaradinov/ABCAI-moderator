@@ -2,6 +2,7 @@ package abci
 
 import (
 	"fmt"
+	"errors"
 
 	"cosmossdk.io/log"
 	"encoding/json"
@@ -16,8 +17,8 @@ import (
 
 // ScamProposalTx defines the custom transaction identifying the scam proposal by its ID.
 type ScamProposalTx struct {
-	ProposalID uint64
-	IsScam     bool
+	Score   int64
+	ExtendedCommitInfo  abci.ExtendedCommitInfo
 }
 
 // NewProposalHandler creates a new instance of the handler to be used.
@@ -45,16 +46,16 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 			return nil, err
 		}
 
-		//_ := req.Txs
+		proposalTxs := req.Txs
 
 		if req.Height >= ctx.ConsensusParams().Abci.VoteExtensionsEnableHeight {
-			stakeWeightedPrices, err := h.computeStakeWeightedOraclePrices(ctx, req.LocalLastCommit)
+			scoreWeightedAverage, err := h.computeScamIdentificationResults(ctx, req.LocalLastCommit)
 			if err != nil {
-				return nil, errors.New("failed to compute stake-weighted oracle prices")
+				return nil, errors.New("failed to compute stake-weighted average score")
 			}
 
-			injectedVoteExtTx := StakeWeightedPrices{
-				StakeWeightedPrices: stakeWeightedPrices,
+			injectedVoteExtTx := ScamProposalTx{
+				Score: scoreWeightedAverage,
 				ExtendedCommitInfo:  req.LocalLastCommit,
 			}
 
@@ -70,9 +71,6 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 			// and store the canonical stake-weighted average prices.
 			proposalTxs = append(proposalTxs, bz)
 		}
-
-
-
 		return nil, nil
 	}
 }
@@ -92,9 +90,9 @@ func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeB
 // computeScamIdentificationResults aggregates the scam identification results from each validator.
 func (h *ProposalHandler) computeScamIdentificationResults(ctx sdk.Context, ci abci.ExtendedCommitInfo) (int64, error) {
 	// Get all the votes from the commit info
-	var weightedScore uint64
+	var weightedScore int64
 	var totalStake int64
-	for i, vote := range ci.Votes {
+	for _, vote := range ci.Votes {
 		if vote.BlockIdFlag != cmtproto.BlockIDFlagCommit {
 			continue
 		}
@@ -102,14 +100,18 @@ func (h *ProposalHandler) computeScamIdentificationResults(ctx sdk.Context, ci a
 		var scamPropExt ScamProposalExtension
 		if err := json.Unmarshal(vote.VoteExtension, &scamPropExt); err != nil {
 			h.logger.Error("failed to decode vote extension", "err", err, "validator", fmt.Sprintf("%x", vote.Validator.Address))
-			// We used 101 because is outside our range of interested and will be ignored by the caller
+			// We used -1 because is outside our range of interested and will be ignored by the caller
 			return -1, err
 		}
 
 		totalStake += vote.Validator.Power
 		// Compute stake-weighted sum of the scamScore, i.e.
 		// (S1)(W1) + (S2)(W2) + ... + (Sn)(Wn) / (W1 + W2 + ... + Wn)
-		weightedScore += int64(scamPropExt.ScamPercent) * vote.Validator.Power
+		weightedScore += scamPropExt.ScamPercent * vote.Validator.Power
+	}
+
+	if totalStake == 0 {
+		return -1, nil
 	}
 
 	// Compute stake-weighted average of the scamScore, i.e.
