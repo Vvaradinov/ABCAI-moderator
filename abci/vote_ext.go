@@ -2,25 +2,29 @@ package abci
 
 import (
 	"cosmossdk.io/log"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
-
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	operator "scam-proposal-detection/moderator/openai"
+	operatortypes "scam-proposal-detection/moderator/types"
 )
 
 // SusProposal defines a suspicious (sus) proposal that might be a scam
-type SusProposal struct {
-	HashedTitle string
-	ScamPercent float64
-}
+//type SusProposal struct {
+//	HashedTitle string
+//	ScamPercent int64
+//}
 
 // ScamProposalExtension defines the canonical vote extension structure for scam detection.
 type ScamProposalExtension struct {
-	Proposals []SusProposal
-	Height    int64
+	HashedTitle string
+	ScamPercent int64
+	Height      int64
 }
 
 func NewVoteExtensionHandler(lg log.Logger, cdc codec.Codec) *VoteExtHandler {
@@ -34,31 +38,36 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 	return func(ctx sdk.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
 		h.logger.Info(fmt.Sprintf("Extending votes at block height : %v", req.Height))
 
-		//proposals := make([]SusProposal, 0)
-		// TODO: Convert this into a slice of MsgSubmitProposal
-		// so we can detect more than one proposal
 		var proposalMsg govtypes.MsgSubmitProposal
 		for _, tx := range req.Txs {
 			if err := h.cdc.Unmarshal(tx, &proposalMsg); err != nil {
 				h.logger.Error(fmt.Sprintf("❌️ :: Transaction is not a gov proposal, %v", err))
 				continue
 			}
-
-			//susProposal := SusProposal{
-			//	HashedTitle: "",
-			//	ScamPercent: 0,
-			//}
-			//proposals := append(proposals)
 		}
 
-		// Make an API call to OpenAI to compute the score for the proposal title and summary
+		//susProposal := SusProposal{
+		//	HashedTitle: hashStringWithNonce(proposalMsg.Title, req.Height),
+		//	ScamPercent: 0,
+		//}
 
-		// produce a canonical vote extension
-		// hash the title of the proposal
-		// TODO hash the tile in the proposal with a nonce
+		// Make an API call to OpenAI to compute the score for the proposal title and summary
+		result, err := operator.ComputeScoreProposal(
+			operatortypes.Proposal{
+				Title:       proposalMsg.Title,
+				Description: proposalMsg.Summary,
+			},
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		// produce a canonical vote extension that contains the SusProposals
 		voteExtension := ScamProposalExtension{
-			Proposals: []SusProposal{},
-			Height:    req.Height,
+			HashedTitle: hashStringWithNonce(proposalMsg.Title, req.Height),
+			ScamPercent: result,
+			Height:      req.Height,
 		}
 
 		bz, err := json.Marshal(voteExtension)
@@ -91,4 +100,19 @@ func (h *VoteExtHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExtensionHan
 
 		return &abci.ResponseVerifyVoteExtension{Status: abci.ResponseVerifyVoteExtension_ACCEPT}, nil
 	}
+}
+
+// hashStringWithNonce hashes a string with a nonce and returns the hash and nonce.
+func hashStringWithNonce(data string, height int64) string {
+	// Generate a random nonce.
+
+	// Concatenate data with nonce.
+	input := fmt.Sprintf("%s%d", data, height)
+
+	// Compute the SHA256 hash.
+	hasher := sha256.New()
+	hasher.Write([]byte(input))
+	hashed := hasher.Sum(nil)
+
+	return hex.EncodeToString(hashed)
 }
