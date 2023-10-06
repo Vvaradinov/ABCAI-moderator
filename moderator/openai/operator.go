@@ -15,10 +15,10 @@ const AVERAGE_CHARACTERS_PER_TOKEN = 4
 const MAX_CHARACTERS = TOKEN_LIMIT * AVERAGE_CHARACTERS_PER_TOKEN
 const PROMPT_CHARACTERS_LENGTH = 2000
 
-func ComputeScoreBatchProposals(proposals []types.Proposal) ([]float64, []error) {
-	var scores []float64
+func ComputeScoreBatchProposals(proposals []types.Proposal) ([]int64, []error) {
+	var scores []int64
 	var errors []error
-	scoreChan := make(chan float64)
+	scoreChan := make(chan int64)
 	errorChan := make(chan error)
 
 	for _, proposal := range proposals {
@@ -44,7 +44,7 @@ func ComputeScoreBatchProposals(proposals []types.Proposal) ([]float64, []error)
 	return scores, errors
 }
 
-func ComputeScoreProposal(proposal types.Proposal) (float64, error) {
+func ComputeScoreProposal(proposal types.Proposal) (int64, error) {
 	truncate_limit_description := MAX_CHARACTERS - PROMPT_CHARACTERS_LENGTH - len(proposal.Title)
 	client := openai.NewClient(os.Getenv("OPEN_AI_API_KEY"))
 	resp, err := client.CreateChatCompletion(
@@ -99,16 +99,18 @@ func ComputeScoreProposal(proposal types.Proposal) (float64, error) {
 
 	if err != nil {
 		fmt.Printf("ChatCompletion error: %v\n", err)
-		return 0.0, err
+		return 0, err
 	}
 
-	var score float64
-	_, err = fmt.Sscanf(resp.Choices[0].Message.Content, "%f", &score)
+	var scoreFloat float64
+	_, err = fmt.Sscanf(resp.Choices[0].Message.Content, "%f", &scoreFloat)
 
 	if err != nil {
 		fmt.Printf("Error parsing score: %v\n", err)
-		return 0.0, err
+		return 0, err
 	}
+
+	score := int64(scoreFloat * 100)
 
 	return score, nil
 }
