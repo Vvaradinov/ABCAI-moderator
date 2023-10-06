@@ -6,9 +6,11 @@ import (
 	"cosmossdk.io/log"
 	_ "embed"
 	dbm "github.com/cosmos/cosmos-db"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	"io"
 	"os"
 	"path/filepath"
+	"scam-proposal-detection/abci"
 
 	storetypes "cosmossdk.io/store/types"
 
@@ -64,6 +66,7 @@ type MiniApp struct {
 	AccountKeeper         authkeeper.AccountKeeper
 	BankKeeper            bankkeeper.Keeper
 	StakingKeeper         *stakingkeeper.Keeper
+	GovernanceKeeper      govkeeper.Keeper
 	DistrKeeper           distrkeeper.Keeper
 	ConsensusParamsKeeper consensuskeeper.Keeper
 
@@ -134,21 +137,24 @@ func NewMiniApp(
 		return nil, err
 	}
 
-	//propHandler := abci.NewProposalHandler(
-	//	logger,
-	//	app.StakingKeeper,
-	//)
-	//voteExtHandler := abci.NewVoteExtensionHandler()
+	propHandler := abci.NewProposalHandler(
+		logger,
+		app.StakingKeeper,
+		app.appCodec,
+		app.GovernanceKeeper,
+		app.StakingKeeper,
+	)
+	voteExtHandler := abci.NewVoteExtensionHandler(logger, app.appCodec)
 
-	//baseAppOptions = append(baseAppOptions, func(ba *baseapp.BaseApp) {
-	//	ba.SetExtendVoteHandler(voteExtHandler.ExtendVoteHandler())
-	//	ba.SetVerifyVoteExtensionHandler(voteExtHandler.VerifyVoteExtensionHandler())
-	//	ba.SetPrepareProposal(propHandler.PrepareProposalHandler())
-	//	ba.SetProcessProposal(propHandler.ProcessProposalHandler())
-	//	//ba.SetPreBlocker(propHandler)
-	//})
-	//
-	//app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
+	baseAppOptions = append(baseAppOptions, func(ba *baseapp.BaseApp) {
+		ba.SetExtendVoteHandler(voteExtHandler.ExtendVoteHandler())
+		ba.SetVerifyVoteExtensionHandler(voteExtHandler.VerifyVoteExtensionHandler())
+		ba.SetPrepareProposal(propHandler.PrepareProposalHandler())
+		ba.SetProcessProposal(propHandler.ProcessProposalHandler())
+		ba.SetPreBlocker(propHandler.PreBlocker)
+	})
+
+	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
 
 	// register streaming services
 	if err := app.RegisterStreamingServices(appOpts, app.kvStoreKeys()); err != nil {

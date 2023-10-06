@@ -22,7 +22,7 @@ func NewProposalHandler(
 	valStore baseapp.ValidatorStore,
 	cdc codec.Codec,
 	govKeeper govkeeper.Keeper,
-	stakingKeeper stakingkeeper.Keeper,
+	stakingKeeper *stakingkeeper.Keeper,
 ) *ProposalHandler {
 	return &ProposalHandler{
 		logger:        lg,
@@ -62,6 +62,10 @@ func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 		resp.Status = 1 // Accepts the proposal
 		return resp, nil
 	}
+}
+
+func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
+	return &sdk.ResponsePreBlock{}, nil
 }
 
 // computeScamIdentificationResults aggregates the scam identification results from each validator.

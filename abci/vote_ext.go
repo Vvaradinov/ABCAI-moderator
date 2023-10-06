@@ -44,12 +44,12 @@ func (h *VoteExtHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 
 		// produce a canonical vote extension
 		// TODO:
-		_ := ScamProposalExtension{
-			ProposalID:  1,
-			ScamPercent: 100,
-		}
+		//_ := ScamProposalExtension{
+		//	ProposalID:  1,
+		//	ScamPercent: 100,
+		//}
 
-		//return &abci.ResponseExtendVote{VoteExtension: bz}, nil
+		return &abci.ResponseExtendVote{VoteExtension: []byte{}}, nil
 	}
 }
 

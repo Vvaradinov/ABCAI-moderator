@@ -15,30 +15,11 @@ type ProposalHandler struct {
 	valStore      baseapp.ValidatorStore
 	cdc           codec.Codec
 	govKeeper     govkeeper.Keeper
-	stakingKeeper stakingkeeper.Keeper
+	stakingKeeper *stakingkeeper.Keeper
 }
 
 type VoteExtHandler struct {
 	logger       log.Logger
 	currentBlock int64
 	cdc          codec.Codec
-}
-
-type InjectedVoteExt struct {
-	VoteExtSigner []byte
-	Bids          [][]byte
-}
-
-type InjectedVotes struct {
-	Votes []InjectedVoteExt
-}
-
-type AppVoteExtension struct {
-	Height int64
-	Bids   [][]byte
-}
-
-type SpecialTransaction struct {
-	Height int
-	Bids   [][]byte
 }
