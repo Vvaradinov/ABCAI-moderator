@@ -74,11 +74,6 @@ type MiniApp struct {
 	sm *module.SimulationManager
 }
 
-func (app *MiniApp) ExportAppStateAndValidators(forZeroHeight bool, jailAllowedAddrs, modulesToExport []string) (servertypes.ExportedApp, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func init() {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -131,6 +126,7 @@ func NewMiniApp(
 		&app.AccountKeeper,
 		&app.BankKeeper,
 		&app.StakingKeeper,
+		&app.GovernanceKeeper,
 		&app.DistrKeeper,
 		&app.ConsensusParamsKeeper,
 	); err != nil {

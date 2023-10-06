@@ -8,7 +8,7 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 )
 
-// ProposalHandler defines the ProposalHandler to be used for
+// ProposalHandler defines the handler to be used for
 // PrepareProposal, ProcessProposal and PreBlocker
 type ProposalHandler struct {
 	logger        log.Logger
@@ -18,8 +18,9 @@ type ProposalHandler struct {
 	stakingKeeper *stakingkeeper.Keeper
 }
 
+// VoteExtHandler defines the handler to be used for
+// ExtendVote and VerifyExtendVote
 type VoteExtHandler struct {
-	logger       log.Logger
-	currentBlock int64
-	cdc          codec.Codec
+	logger log.Logger
+	cdc    codec.Codec
 }
