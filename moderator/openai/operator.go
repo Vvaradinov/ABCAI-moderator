@@ -10,6 +10,11 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const TOKEN_LIMIT = 4096
+const AVERAGE_CHARACTERS_PER_TOKEN = 4
+const MAX_CHARACTERS = TOKEN_LIMIT * AVERAGE_CHARACTERS_PER_TOKEN
+const PROMPT_CHARACTERS_LENGTH = 2000
+
 func ComputeScoreBatchProposals(proposals []types.Proposal) ([]float64, []error) {
 	var scores []float64
 	var errors []error
@@ -40,6 +45,7 @@ func ComputeScoreBatchProposals(proposals []types.Proposal) ([]float64, []error)
 }
 
 func ComputeScoreProposal(proposal types.Proposal) (float64, error) {
+	truncate_limit_description := MAX_CHARACTERS - PROMPT_CHARACTERS_LENGTH - len(proposal.Title)
 	client := openai.NewClient(os.Getenv("OPEN_AI_API_KEY"))
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
@@ -81,7 +87,7 @@ func ComputeScoreProposal(proposal types.Proposal) (float64, error) {
 					## Prompt:
 
 					Title:` + proposal.Title + `
-					Description:` + proposal.Description + `
+					Description:` + fmt.Sprintf("%.*s", truncate_limit_description, proposal.Description) + `
 					
 					Expected Output: A float between 0 and 1 only.`,
 				},
