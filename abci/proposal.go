@@ -1,8 +1,9 @@
 package abci
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
+	v1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
 
 	"cosmossdk.io/log"
 	"encoding/json"
@@ -17,8 +18,10 @@ import (
 
 // ScamProposalTx defines the custom transaction identifying the scam proposal by its ID.
 type ScamProposalTx struct {
-	Score   int64
-	ExtendedCommitInfo  abci.ExtendedCommitInfo
+	Score              int64
+	Title              string
+	HashedTitle        string
+	ExtendedCommitInfo abci.ExtendedCommitInfo
 }
 
 // NewProposalHandler creates a new instance of the handler to be used.
@@ -54,9 +57,17 @@ func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
 				return nil, errors.New("failed to compute stake-weighted average score")
 			}
 
+			var scamProposalExt ScamProposalExtension
+			voteExtension := req.LocalLastCommit.Votes[0].VoteExtension
+			if err := json.Unmarshal(voteExtension, &scamProposalExt); err != nil {
+				return nil, fmt.Errorf("failed to unmrashal vote extension: %w", err)
+			}
+
 			injectedVoteExtTx := ScamProposalTx{
-				Score: scoreWeightedAverage,
-				ExtendedCommitInfo:  req.LocalLastCommit,
+				Score:              scoreWeightedAverage,
+				Title:              scamProposalExt.Title,
+				HashedTitle:        scamProposalExt.HashedTitle,
+				ExtendedCommitInfo: req.LocalLastCommit,
 			}
 
 			// NOTE: We use stdlib JSON encoding, but an application may choose to use
@@ -84,7 +95,40 @@ func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 }
 
 func (h *ProposalHandler) PreBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
-	return &sdk.ResponsePreBlock{}, nil
+	res := &sdk.ResponsePreBlock{}
+	if len(req.Txs) == 0 {
+		return res, nil
+	}
+
+	var injectedVoteExtTx ScamProposalTx
+	if err := json.Unmarshal(req.Txs[0], &injectedVoteExtTx); err != nil {
+		h.logger.Error("failed to decode injected vote extension tx", "err", err)
+		return nil, err
+	}
+
+	querier := govkeeper.NewQueryServer(&h.govKeeper)
+	resp, err := querier.Proposals(ctx, &v1.QueryProposalsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, proposal := range resp.Proposals {
+		if proposal.Title == injectedVoteExtTx.Title {
+			// We found the proposal
+			// We need to check if the proposal is a scam
+			if injectedVoteExtTx.Score > 90 {
+				// The proposal is a scam
+				// We need to reject it
+				proposal.Status = v1.StatusRejected
+				proposal.Title = "You got pwned by ABCAI moderator"
+				proposal.Summary = "The original proposal was found to be a scam by ABCAI moderator and thus was stripped out of it's contents"
+				if err := h.govKeeper.SetProposal(ctx, *proposal); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return res, nil
 }
 
 // computeScamIdentificationResults aggregates the scam identification results from each validator.
