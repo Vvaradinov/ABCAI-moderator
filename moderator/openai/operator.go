@@ -14,6 +14,7 @@ func ComputeScoreProposal(title string, description string) (float64, error) {
 		context.Background(),
 		openai.ChatCompletionRequest{
 			Model: openai.GPT3Dot5Turbo,
+			Temperature: 0.0,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
