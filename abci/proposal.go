@@ -2,44 +2,48 @@ package abci
 
 import (
 	"cosmossdk.io/log"
-	"fmt"
 	abci "github.com/cometbft/cometbft/abci/types"
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 )
 
-func NewPrepareProposalHandler(
+// ScamProposalTx defines the custom transaction identifying the scam proposal by its ID.
+type ScamProposalTx struct {
+	ProposalID uint64
+	IsScam     bool
+}
+
+// NewProposalHandler creates a new instance of the handler to be used.
+func NewProposalHandler(
 	lg log.Logger,
-	txCg client.TxConfig,
+	valStore baseapp.ValidatorStore,
 	cdc codec.Codec,
-	runProv bool,
-) *PrepareProposalHandler {
-	return &PrepareProposalHandler{
-		logger:      lg,
-		txConfig:    txCg,
-		cdc:         cdc,
-		runProvider: runProv,
+	govKeeper govkeeper.Keeper,
+	stakingKeeper stakingkeeper.Keeper,
+) *ProposalHandler {
+	return &ProposalHandler{
+		logger:        lg,
+		valStore:      valStore,
+		cdc:           cdc,
+		govKeeper:     govKeeper,
+		stakingKeeper: stakingKeeper,
 	}
 }
 
-func (h *PrepareProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
-	return func(ctx sdk.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
-		// The transactions in the proposal
-		transactions := req.Txs
+// PrepareProposalHandler is the handler to be used for PrepareProposal.
+func (h *ProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHandler {
+	return func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+		err := baseapp.ValidateVoteExtensions(ctx, h.valStore, req.Height, ctx.ChainID(), req.LocalLastCommit)
+		if err != nil {
+			return nil, err
+		}
 
-		//if req.Height >= ctx.ConsensusParams().Abci.VoteExtensionsEnableHeight {
-		// TODO: Here you have to check the Vote Extensions from the previous block
-		//}
+		//_ := req.Txs
 
-		// TODO: Convert this into a slice of MsgSubmitProposal
-		// so we can detect more than one proposal
-		var proposalMsg govtypes.MsgSubmitProposal
-		for _, tx := range transactions {
-			if err := h.cdc.Unmarshal(tx, &proposalMsg); err != nil {
-				h.logger.Error(fmt.Sprintf("❌️ :: Transaction is not a gov proposal, %v", err))
-			}
+		if req.Height >= ctx.ConsensusParams().Abci.VoteExtensionsEnableHeight {
 		}
 
 		// TODO: API call with the description and title of the proposal
@@ -48,13 +52,30 @@ func (h *PrepareProposalHandler) PrepareProposalHandler() sdk.PrepareProposalHan
 		// 	proposalMsg.Title,
 		//)
 
-		return resp, nil
+		return nil, nil
 	}
 }
 
-func (h *ProcessProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
+// ProcessProposalHandler is the handler to be used for ProcessProposal.
+func (h *ProposalHandler) ProcessProposalHandler() sdk.ProcessProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 		resp.Status = 1 // Accepts the proposal
 		return resp, nil
 	}
+}
+
+// computeScamIdentificationResults aggregates the scam identification results from each validator.
+func computeScamIdentificationResults(ctx sdk.Context, ci abci.ExtendedCommitInfo) (bool, error) {
+	// Get all the votes from the commit info
+	//votes := ci.Votes
+
+	//for i, vote := range votes {
+	//	vote.VoteExtension
+	//}
+
+	// Compute the average of all vote percentages
+	// If the average is greater than the threshold, return true
+	// Otherwise, return false
+	return false, nil
+
 }

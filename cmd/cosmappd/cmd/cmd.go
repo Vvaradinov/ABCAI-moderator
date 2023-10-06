@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/fatal-fruit/cosmapp/testutils"
 	"os"
 
 	"cosmossdk.io/log"
@@ -11,8 +10,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	txmodule "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
-
-	"github.com/fatal-fruit/cosmapp/app"
+	"scam-proposal-detection/app"
+	"scam-proposal-detection/testutils"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
