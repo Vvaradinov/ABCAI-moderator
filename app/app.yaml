@@ -10,7 +10,7 @@ modules:
       end_blockers: [staking]
       # NOTE: The genutils module must occur after staking so that pools are properly initialized with tokens from genesis accounts.
       # NOTE: The genutils module must also occur after auth so that it can access the params from auth.
-      init_genesis: [auth, bank, distribution, staking, genutil, oracle]
+      init_genesis: [auth, bank, distribution, staking, genutil, gov]
       override_store_keys:
         - module_name: auth
           kv_store_key: acc
@@ -33,6 +33,9 @@ modules:
   - name: staking
     config:
       "@type": cosmos.staking.module.v1.Module
+  - name: governance
+    config:
+      "@type": cosmos.gov.module.v1.Module
   - name: distribution
     config:
       "@type": cosmos.distribution.module.v1.Module
@@ -45,6 +48,3 @@ modules:
   - name: tx
     config:
       "@type": cosmos.tx.config.v1.Config
-  - name: oracle
-    config:
-      "@type": facundomedica.oracle.module.v1.Module
